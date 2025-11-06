@@ -109,7 +109,21 @@
               </div>
             </div>
 
-            <div class="d-flex gap-2 mt-4">
+            <!-- Service selection for ETA tracking (affects order ETA only; not shown on printed invoice) -->
+            <div class="card mb-3">
+              <div class="card-header bg-light">
+                <h6 class="mb-0">Service Selection (optional)</h6>
+              </div>
+              <div class="card-body">
+                <p class="small text-muted">Select services or add-ons performed — this will calculate an estimated duration for tracking but will not appear on the generated invoice.</p>
+                <div id="invoiceServiceContainer" class="row g-2">Loading services...</div>
+                <div class="small text-muted mt-2" id="invoiceEtaHint" style="display:none;"></div>
+                <input type="hidden" name="service_selection" id="serviceSelectionInput" value="">
+                <input type="hidden" name="estimated_duration" id="invoiceEstimatedDuration" value="{{ order.estimated_duration|default:'' }}">
+              </div>
+            </div>
+
+            <div class="d-flex gap-2 mt-2">
               {% if order %}
                 <a href="{% url 'tracker:started_order_detail' order_id=order.id %}" class="btn btn-light">Cancel</a>
               {% else %}
@@ -117,6 +131,50 @@
               {% endif %}
               <button type="submit" class="btn btn-primary">Create Invoice</button>
             </div>
+
+            <script>
+              // Populate service selection and compute ETA
+              document.addEventListener('DOMContentLoaded', function(){
+                const container = document.getElementById('invoiceServiceContainer');
+                const hint = document.getElementById('invoiceEtaHint');
+                const hiddenSel = document.getElementById('serviceSelectionInput');
+                const hiddenEta = document.getElementById('invoiceEstimatedDuration');
+
+                fetch('{% url "tracker:api_service_types" %}', { headers: { 'X-Requested-With': 'XMLHttpRequest' }})
+                  .then(r => r.json())
+                  .then(data => {
+                    const serviceTypes = Array.isArray(data.service_types)?data.service_types:[];
+                    const addOns = Array.isArray(data.service_addons)?data.service_addons:[];
+                    container.innerHTML = '';
+
+                    const render = (item, type) => {
+                      const id = 'inv_srv_' + (item.name||'').replace(/[^A-Za-z0-9_]/g,'_');
+                      const col = document.createElement('div'); col.className = 'col-md-6';
+                      col.innerHTML = `<div class="form-check"><input class="form-check-input inv-svc-opt" type="checkbox" id="${id}" value="${item.name}" data-minutes="${item.estimated_minutes||0}"><label class="form-check-label" for="${id}">${item.name} <small class="text-muted">(${item.estimated_minutes||0}m)</small></label></div>`;
+                      container.appendChild(col);
+                    };
+
+                    serviceTypes.forEach(s => render(s,'service'));
+                    if (addOns.length){
+                      const hr = document.createElement('div'); hr.className='col-12 mt-2'; hr.innerHTML='<hr>'; container.appendChild(hr);
+                      addOns.forEach(a => render(a,'addon'));
+                    }
+
+                    function updateSel(){
+                      const checked = Array.from(container.querySelectorAll('.inv-svc-opt:checked'));
+                      const names = checked.map(c=>c.value);
+                      const total = checked.reduce((s,c)=>s+Number(c.getAttribute('data-minutes')||0),0);
+                      hiddenSel.value = JSON.stringify(names);
+                      hiddenEta.value = total>0?String(total):'';
+                      if (total>0){ hint.style.display='block'; hint.textContent = 'Estimated total time: ' + total + ' mins'; } else { hint.style.display='none'; }
+                    }
+
+                    container.querySelectorAll('.inv-svc-opt').forEach(cb=>cb.addEventListener('change', updateSel));
+                    updateSel();
+                  })
+                  .catch(err=>{ console.error('Failed to load services for invoice:', err); container.innerHTML='<div class="text-danger">Failed to load services</div>'; });
+              });
+            </script>
           </form>
         </div>
       </div>
