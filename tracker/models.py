@@ -178,6 +178,11 @@ class Order(models.Model):
     signed_at = models.DateTimeField(blank=True, null=True)
     # completion_date is kept for historical compatibility; completed_at is canonical timestamp used across views
 
+    # Overrun / delay reporting (when order exceeds estimated duration)
+    overrun_reason = models.TextField(blank=True, null=True, help_text="Reason provided when an order exceeded its ETA and was completed later")
+    overrun_reported_at = models.DateTimeField(blank=True, null=True)
+    overrun_reported_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='overrun_reports')
+
     # Additional fields used across the app
     completion_date = models.DateTimeField(blank=True, null=True)
     cancellation_reason = models.TextField(blank=True, null=True)
