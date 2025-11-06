@@ -210,7 +210,8 @@
 
                     // Populate item selection
                     itemSelect.innerHTML = '<option value="">Select item</option>';
-                    if (inventoryItems.length) {
+                    if (inventoryItems.length > 0) {
+                      console.log('Adding', inventoryItems.length, 'items to dropdown');
                       inventoryItems.forEach(item => {
                         const option = document.createElement('option');
                         option.value = item.id;
@@ -218,14 +219,19 @@
                         option.setAttribute('data-brand', item.brand);
                         itemSelect.appendChild(option);
                       });
+                    } else {
+                      console.warn('No inventory items available');
+                      itemSelect.innerHTML += '<option value="" disabled>No items available</option>';
                     }
 
                     // Set existing item if available
                     const existingItem = ('{{ order.item_name|default:"" }}').trim();
                     const existingBrand = ('{{ order.brand|default:"" }}').trim();
-                    if (existingItem) {
+                    console.log('Existing item:', existingItem, 'Brand:', existingBrand);
+                    if (existingItem && inventoryItems.length > 0) {
                       const selectedItem = inventoryItems.find(i => i.name === existingItem && i.brand === existingBrand);
                       if (selectedItem) {
+                        console.log('Setting selected item:', selectedItem);
                         itemSelect.value = selectedItem.id;
                         brandField.value = selectedItem.brand;
                       }
