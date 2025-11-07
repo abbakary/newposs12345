@@ -1,0 +1,84 @@
+{% extends 'tracker/base.html' %}
+{% block title %}Order Overrun Reports{% endblock %}
+{% block content %}
+<div class="container-fluid">
+  <div class="page-title mb-3">
+    <div class="row">
+      <div class="col-6"><h4>Order Overrun Reports</h4></div>
+      <div class="col-6 text-end"><a href="{% url 'tracker:orders_list' %}" class="btn btn-sm btn-outline-secondary">Back to Orders</a></div>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-4">
+    <div class="col-md-3">
+      <div class="card shadow-sm text-center p-3">
+        <div class="small text-muted">Total Overruns</div>
+        <h3>{{ total_overruns|default:0 }}</h3>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card shadow-sm text-center p-3">
+        <div class="small text-muted">Avg Delay (mins)</div>
+        <h3>{{ avg_delay|default:0|floatformat:1 }}</h3>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card shadow-sm text-center p-3">
+        <div class="small text-muted">Orders Completed Late</div>
+        <h3>{{ completed_late|default:0 }}</h3>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card shadow-sm text-center p-3">
+        <div class="small text-muted">Unique Reasons</div>
+        <h3>{{ unique_reasons|default:0 }}</h3>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-lg-6">
+      <div class="card shadow-sm">
+        <div class="card-header bg-light"><strong>Top Delay Reasons</strong></div>
+        <div class="card-body">
+          <ul class="list-group">
+            {% for r in top_reasons %}
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+              <div>{{ r.reason|default:'(blank)' }}</div>
+              <span class="badge bg-primary rounded-pill">{{ r.count }}</span>
+            </li>
+            {% empty %}
+            <li class="list-group-item">No reported overruns yet.</li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="card shadow-sm">
+        <div class="card-header bg-light"><strong>Recent Overrun Reports</strong></div>
+        <div class="card-body">
+          <div class="table-responsive">
+            <table class="table table-sm">
+              <thead><tr><th>Order</th><th>Reason</th><th>Reported By</th><th>Reported At</th><th>Delay (mins)</th></tr></thead>
+              <tbody>
+                {% for o in recent_overruns %}
+                <tr>
+                  <td><a href="{% url 'tracker:order_detail' pk=o.id %}">{{ o.order_number }}</a></td>
+                  <td style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ o.overrun_reason }}</td>
+                  <td>{{ o.overrun_reported_by.get_full_name if o.overrun_reported_by else 'System' }}</td>
+                  <td>{{ o.overrun_reported_at|date:'M d, Y H:i' }}</td>
+                  <td>{{ o.delay_minutes }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="5">No overruns reported</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
