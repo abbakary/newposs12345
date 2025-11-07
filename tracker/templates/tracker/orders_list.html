@@ -644,6 +644,13 @@
 
 {% block extra_js %}
 <script>
+// Switch between Regular and Started Orders views
+function switchOrderView(mode) {
+  const url = new URL(window.location);
+  url.searchParams.set('view', mode);
+  window.location.href = url.toString();
+}
+
 document.addEventListener('DOMContentLoaded', function() {
   // Complete order functionality
   document.querySelectorAll('.js-complete-order').forEach(button => {
