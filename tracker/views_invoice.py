@@ -504,6 +504,7 @@ def api_create_invoice_from_extraction(request):
         kind_attention = data.get('kind_attention')
         notes = data.get('notes')
         terms = data.get('terms')
+        items = data.get('items') or []
 
         user_branch = get_user_branch(request.user)
 
@@ -554,6 +555,31 @@ def api_create_invoice_from_extraction(request):
         invoice.created_by = request.user
         invoice.generate_invoice_number()
         invoice.save()
+
+        # Create invoice line items from extracted items if provided
+        try:
+            from .models import InvoiceLineItem
+            for it in items:
+                try:
+                    qty = Decimal(str(it.get('quantity') or it.get('qty') or 1))
+                    unit_price = Decimal(str(it.get('unit_price') or it.get('rate') or 0))
+                except Exception:
+                    qty = Decimal('1')
+                    unit_price = Decimal('0')
+                description = it.get('description') or it.get('desc') or ''
+                unit = it.get('unit') or ''
+                tax_rate_line = Decimal(str(it.get('tax_rate') or 0))
+                line = InvoiceLineItem(
+                    invoice=invoice,
+                    description=description[:255],
+                    quantity=qty,
+                    unit=unit,
+                    unit_price=unit_price,
+                    tax_rate=tax_rate_line
+                )
+                line.save()
+        except Exception as e:
+            logger.warning(f"Failed to create extracted line items: {e}")
 
         return JsonResponse({'success': True, 'invoice_id': invoice.id})
     except json.JSONDecodeError:
