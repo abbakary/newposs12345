@@ -84,11 +84,7 @@ def api_upload_extract_invoice(request):
       - If no match but plate provided, create a temporary customer (Plate {plate}) and create order.
       - If no match and no plate, return parsed data for manual review.
     """
-    from .services import CustomerService, OrderService, VehicleService
-    from .models import Customer, Invoice, InvoiceLineItem
-    from .utils import get_user_branch
     from tracker.utils.invoice_extractor import extract_from_bytes
-    from decimal import Decimal
     import traceback
 
     user_branch = get_user_branch(request.user)
