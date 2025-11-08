@@ -343,13 +343,14 @@
           </script>
 
           <script>
-            // Started order upload button handler
+            // Started order upload button handler with improved error handling
             (function(){
               const uploadBtn = document.getElementById('uploadInvoiceBtn');
               const modalEl = document.getElementById('uploadInvoiceModal');
               const modal = modalEl ? new bootstrap.Modal(modalEl) : null;
               const fileInput = document.getElementById('startedOrderInvoiceFile');
               const startedUploadBtn = document.getElementById('startedUploadBtn');
+              const startedUploadCancel = document.getElementById('startedUploadCancel');
               const startedUploadError = document.getElementById('startedUploadError');
 
               function getCSRF(){
@@ -359,46 +360,118 @@
                 return document.querySelector('[name=csrfmiddlewaretoken]') ? document.querySelector('[name=csrfmiddlewaretoken]').value : '';
               }
 
+              function showError(message){
+                startedUploadError.style.display = 'block';
+                startedUploadError.textContent = message;
+                startedUploadError.className = 'text-danger';
+              }
+
+              function showSuccess(message){
+                startedUploadError.style.display = 'block';
+                startedUploadError.textContent = message;
+                startedUploadError.className = 'text-success';
+              }
+
+              function resetForm(){
+                if (fileInput) fileInput.value = '';
+                startedUploadError.style.display = 'none';
+              }
+
               if (uploadBtn){
                 uploadBtn.addEventListener('click', function(){
+                  resetForm();
                   if (modal) modal.show();
                 });
               }
 
+              if (startedUploadCancel){
+                startedUploadCancel.addEventListener('click', function(){
+                  resetForm();
+                });
+              }
+
               if (startedUploadBtn){
-                startedUploadBtn.addEventListener('click', function(){
-                  startedUploadError.style.display='none';
-                  if (!fileInput || !fileInput.files || !fileInput.files[0]){ startedUploadError.style.display='block'; startedUploadError.textContent='Please select a file.'; return; }
+                startedUploadBtn.addEventListener('click', async function(){
+                  startedUploadError.style.display = 'none';
+
+                  // Validate file selection
+                  if (!fileInput || !fileInput.files || !fileInput.files[0]){
+                    showError('Please select a file (PDF or image) to upload.');
+                    return;
+                  }
+
+                  const file = fileInput.files[0];
+                  const maxSizeMB = 50;
+                  const maxSizeBytes = maxSizeMB * 1024 * 1024;
+
+                  if (file.size > maxSizeBytes){
+                    showError(`File is too large. Maximum size is ${maxSizeMB}MB.`);
+                    return;
+                  }
+
+                  // Build form data
                   const fd = new FormData();
-                  fd.append('file', fileInput.files[0]);
+                  fd.append('file', file);
                   fd.append('selected_order_id', '{{ order.id }}');
-                  // include plate optionally
+
                   {% if vehicle and vehicle.plate_number %}
                   fd.append('plate', '{{ vehicle.plate_number }}');
                   {% endif %}
 
+                  // Show loading state
                   startedUploadBtn.disabled = true;
-                  fetch('{% url "tracker:api_upload_extract_invoice" %}', {
-                    method: 'POST',
-                    body: fd,
-                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': getCSRF() }
-                  }).then(r=>r.json()).then(data=>{
-                    startedUploadBtn.disabled = false;
+                  const originalBtnText = startedUploadBtn.innerHTML;
+                  startedUploadBtn.innerHTML = '<i class="fa fa-spinner fa-spin me-2"></i>Processing...';
+
+                  try {
+                    const response = await fetch('{% url "tracker:api_upload_extract_invoice" %}', {
+                      method: 'POST',
+                      body: fd,
+                      headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRFToken': getCSRF()
+                      }
+                    });
+
+                    const data = await response.json();
+
                     if (data && data.success){
-                      window.location.href = data.redirect_url || ('/invoices/' + data.invoice_id + '/');
+                      // Invoice created successfully
+                      showSuccess('Invoice created successfully! Redirecting...');
+                      setTimeout(function(){
+                        window.location.href = data.redirect_url || ('/tracker/invoices/' + data.invoice_id + '/');
+                      }, 1000);
                       return;
                     }
-                    if (data && data.data){
-                      // Show extraction in a simple alert / fallback to details page
-                      alert('Extraction succeeded but requires review. Opening invoice create page.');
-                      if (modal) modal.hide();
-                      window.location.href = '{% url "tracker:invoice_create" %}?plate={{ vehicle.plate_number|default:"" }}';
-                    } else {
-                      startedUploadError.style.display='block'; startedUploadError.textContent = data.message || 'Extraction failed';
+
+                    // Extraction failed - handle different failure modes
+                    if (!data.success){
+                      const errorMsg = data.message || 'Extraction failed. Please try again.';
+                      const ocrAvailable = data.ocr_available;
+
+                      if (!ocrAvailable){
+                        // OCR not available - offer manual entry
+                        showError(`${errorMsg} You can <a href="{% url 'tracker:invoice_create' %}?order_id={{ order.id }}" class="link-primary">manually create the invoice</a>.`);
+                      } else {
+                        // OCR failed - show error and allow retry
+                        showError(errorMsg);
+                      }
                     }
-                  }).catch(err=>{
-                    startedUploadBtn.disabled = false; startedUploadError.style.display='block'; startedUploadError.textContent = 'Upload error: ' + (err && err.message?err.message:err);
-                  });
+
+                  } catch (err){
+                    console.error('Upload error:', err);
+                    showError(`Upload error: ${err && err.message ? err.message : 'Unknown error'}`);
+                  } finally {
+                    startedUploadBtn.disabled = false;
+                    startedUploadBtn.innerHTML = originalBtnText;
+                  }
+                });
+              }
+
+              // Reset form when modal closes
+              if (modalEl){
+                modalEl.addEventListener('hidden.bs.modal', function(){
+                  resetForm();
                 });
               }
 
