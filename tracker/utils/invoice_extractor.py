@@ -2,6 +2,8 @@
 Simple OCR + regex-based invoice extractor using pytesseract and OpenCV.
 This is a pragmatic extractor intended for Phase-1: reasonably-structured invoices
 (like the Superdoll example). It returns a dict with header fields and a list of items.
+
+If pytesseract or OpenCV are not installed, falls back to regex-based extraction on plain text.
 """
 from PIL import Image
 import io
@@ -22,6 +24,9 @@ except Exception:
     np = None
 
 logger = logging.getLogger(__name__)
+
+# Check if dependencies are available
+OCR_AVAILABLE = pytesseract is not None and cv2 is not None
 
 
 def _image_from_bytes(file_bytes):
