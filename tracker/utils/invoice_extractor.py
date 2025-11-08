@@ -176,27 +176,81 @@ def extract_line_items(text):
 
 
 def extract_from_bytes(file_bytes):
-    """Main entry: take raw bytes, preprocess, OCR, parse and return result dict."""
+    """Main entry: take raw bytes, preprocess, OCR, parse and return result dict.
+
+    If OCR dependencies are not available, returns a success response with empty data
+    so the user can manually enter invoice details.
+
+    Args:
+        file_bytes: Raw bytes of uploaded file (PDF or image)
+
+    Returns:
+        dict with keys: success, header, items, raw_text, message, ocr_available
+    """
+    # Check if OCR is actually available
+    if not OCR_AVAILABLE:
+        logger.warning("OCR dependencies not available. Returning empty extraction for manual entry.")
+        return {
+            'success': False,
+            'error': 'ocr_unavailable',
+            'message': 'OCR extraction is not available in this environment. Please manually enter invoice details.',
+            'ocr_available': False,
+            'header': {},
+            'items': [],
+            'raw_text': ''
+        }
+
+    # Try to open the file as an image
     try:
         img = _image_from_bytes(file_bytes)
     except Exception as e:
         logger.warning(f"Failed to open uploaded file as image: {e}")
-        return {'error': 'invalid_image', 'message': 'Could not open file as image'}
+        return {
+            'success': False,
+            'error': 'invalid_image',
+            'message': f'Could not open file as image: {str(e)}',
+            'ocr_available': False,
+            'header': {},
+            'items': [],
+            'raw_text': ''
+        }
 
-    proc = preprocess_image_pil(img)
+    # Preprocess the image
+    try:
+        proc = preprocess_image_pil(img)
+    except Exception as e:
+        logger.warning(f"Image preprocessing failed: {e}")
+        proc = img
 
+    # Try OCR
     try:
         text = ocr_image(proc)
     except Exception as e:
         logger.error(f"OCR failed: {e}")
-        return {'error': 'ocr_failed', 'message': str(e)}
+        return {
+            'success': False,
+            'error': 'ocr_failed',
+            'message': f'OCR extraction failed: {str(e)}. Please manually enter invoice details.',
+            'ocr_available': False,
+            'header': {},
+            'items': [],
+            'raw_text': ''
+        }
 
-    header = extract_header_fields(text)
-    items = extract_line_items(text)
+    # Extract structured data from OCR text
+    try:
+        header = extract_header_fields(text)
+        items = extract_line_items(text)
+    except Exception as e:
+        logger.warning(f"Failed to parse extracted text: {e}")
+        header = {}
+        items = []
 
     result = {
+        'success': True,
         'header': header,
         'items': items,
-        'raw_text': text
+        'raw_text': text,
+        'ocr_available': True
     }
     return result
