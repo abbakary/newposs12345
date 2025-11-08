@@ -505,25 +505,32 @@
           </script>
 
           <script>
-            // Started order upload button handler with improved error handling
+            // Hybrid Invoice Modal Handler (Upload + Manual Entry)
             document.addEventListener('DOMContentLoaded', function(){
+              // ===== DOM Elements =====
               const uploadBtn = document.getElementById('uploadInvoiceBtn');
               const modalEl = document.getElementById('uploadInvoiceModal');
               const modal = modalEl ? new bootstrap.Modal(modalEl) : null;
 
-              if (!uploadBtn) {
-                console.error('uploadInvoiceBtn element not found');
-                return;
-              }
-              if (!modalEl) {
-                console.error('uploadInvoiceModal element not found');
-                return;
-              }
+              // Upload Tab elements
               const fileInput = document.getElementById('startedOrderInvoiceFile');
               const startedUploadBtn = document.getElementById('startedUploadBtn');
-              const startedUploadCancel = document.getElementById('startedUploadCancel');
               const startedUploadError = document.getElementById('startedUploadError');
+              const uploadProgress = document.getElementById('startedUploadProgress');
+              const uploadProgressBar = document.getElementById('startedUploadProgressBar');
+              const uploadedInvoicePreview = document.getElementById('uploadedInvoicePreview');
+              const useExtractedDataBtn = document.getElementById('useExtractedDataBtn');
+              const retryUploadBtn = document.getElementById('retryUploadBtn');
 
+              // Manual Entry Tab elements
+              const manualForm = document.getElementById('manualInvoiceForm');
+              const addLineItemBtn = document.getElementById('addLineItemBtn');
+              const lineItemsContainer = document.getElementById('lineItemsContainer');
+
+              // Storage for extracted data
+              let extractedInvoiceData = null;
+
+              // ===== Utility Functions =====
               function getCSRF(){
                 const name = 'csrftoken=';
                 const parts = document.cookie.split(';');
@@ -531,23 +538,21 @@
                 return document.querySelector('[name=csrfmiddlewaretoken]') ? document.querySelector('[name=csrfmiddlewaretoken]').value : '';
               }
 
-              function showError(message){
+              function showError(message, isDanger = true){
                 startedUploadError.style.display = 'block';
-                startedUploadError.textContent = message;
-                startedUploadError.className = 'text-danger';
-              }
-
-              function showSuccess(message){
-                startedUploadError.style.display = 'block';
-                startedUploadError.textContent = message;
-                startedUploadError.className = 'text-success';
+                startedUploadError.innerHTML = message;
+                startedUploadError.className = isDanger ? 'alert alert-danger' : 'alert alert-warning';
               }
 
               function resetForm(){
                 if (fileInput) fileInput.value = '';
                 startedUploadError.style.display = 'none';
+                uploadProgress.style.display = 'none';
+                uploadedInvoicePreview.style.display = 'none';
+                extractedInvoiceData = null;
               }
 
+              // ===== Modal Open Handler =====
               if (uploadBtn){
                 uploadBtn.addEventListener('click', function(){
                   resetForm();
@@ -555,19 +560,14 @@
                 });
               }
 
-              if (startedUploadCancel){
-                startedUploadCancel.addEventListener('click', function(){
-                  resetForm();
-                });
-              }
-
+              // ===== Upload Tab Handlers =====
               if (startedUploadBtn){
                 startedUploadBtn.addEventListener('click', async function(){
                   startedUploadError.style.display = 'none';
 
                   // Validate file selection
                   if (!fileInput || !fileInput.files || !fileInput.files[0]){
-                    showError('Please select a file (PDF or image) to upload.');
+                    showError('<i class="fa fa-warning me-2"></i>Please select a PDF file to upload.');
                     return;
                   }
 
@@ -576,7 +576,12 @@
                   const maxSizeBytes = maxSizeMB * 1024 * 1024;
 
                   if (file.size > maxSizeBytes){
-                    showError(`File is too large. Maximum size is ${maxSizeMB}MB.`);
+                    showError(`<i class="fa fa-warning me-2"></i>File is too large. Maximum size is ${maxSizeMB}MB.`);
+                    return;
+                  }
+
+                  if (!file.name.toLowerCase().endsWith('.pdf')){
+                    showError('<i class="fa fa-warning me-2"></i>Please upload a PDF file (images are not supported).', false);
                     return;
                   }
 
@@ -591,6 +596,7 @@
 
                   // Show loading state
                   startedUploadBtn.disabled = true;
+                  uploadProgress.style.display = 'block';
                   const originalBtnText = startedUploadBtn.innerHTML;
                   startedUploadBtn.innerHTML = '<i class="fa fa-spinner fa-spin me-2"></i>Processing...';
 
@@ -608,33 +614,190 @@
 
                     if (data && data.success){
                       // Invoice created successfully
-                      showSuccess('Invoice created successfully! Redirecting...');
+                      showError('<i class="fa fa-check-circle me-2"></i>Invoice created successfully! Redirecting...', false);
                       setTimeout(function(){
                         window.location.href = data.redirect_url || ('/tracker/invoices/' + data.invoice_id + '/');
-                      }, 1000);
+                      }, 1500);
                       return;
                     }
 
-                    // Extraction failed - handle different failure modes
-                    if (!data.success){
-                      const errorMsg = data.message || 'Extraction failed. Please try again.';
-                      const ocrAvailable = data.ocr_available;
-
-                      if (!ocrAvailable){
-                        // OCR not available - offer manual entry
-                        showError(`${errorMsg} You can <a href="{% url 'tracker:invoice_create' %}?order_id={{ order.id }}" class="link-primary">manually create the invoice</a>.`);
-                      } else {
-                        // OCR failed - show error and allow retry
-                        showError(errorMsg);
-                      }
+                    // Extraction succeeded but needs review - show preview
+                    if (data && data.header){
+                      extractedInvoiceData = data;
+                      showExtractedDataPreview(data.header);
+                      uploadProgress.style.display = 'none';
+                      return;
                     }
+
+                    // Extraction failed - offer manual entry
+                    uploadProgress.style.display = 'none';
+                    const errorMsg = data.message || 'Could not extract data from PDF.';
+                    showError(`<i class="fa fa-info-circle me-2"></i>${errorMsg} Switch to <strong>Enter Manually</strong> tab to enter details.`, false);
 
                   } catch (err){
                     console.error('Upload error:', err);
-                    showError(`Upload error: ${err && err.message ? err.message : 'Unknown error'}`);
+                    uploadProgress.style.display = 'none';
+                    showError(`<i class="fa fa-exclamation-circle me-2"></i>Upload error: ${err && err.message ? err.message : 'Unknown error'}`);
                   } finally {
                     startedUploadBtn.disabled = false;
                     startedUploadBtn.innerHTML = originalBtnText;
+                  }
+                });
+              }
+
+              function showExtractedDataPreview(header){
+                document.getElementById('previewInvoiceNo').textContent = header.invoice_no || '-';
+                document.getElementById('previewInvoiceDate').textContent = header.date || '-';
+                document.getElementById('previewTotal').textContent = header.total || header.subtotal || '-';
+                uploadedInvoicePreview.style.display = 'block';
+              }
+
+              if (useExtractedDataBtn){
+                useExtractedDataBtn.addEventListener('click', function(){
+                  if (extractedInvoiceData && extractedInvoiceData.header){
+                    populateManualFormWithExtracted(extractedInvoiceData);
+                    // Switch to manual tab
+                    document.getElementById('invoiceManualTab').click();
+                  }
+                });
+              }
+
+              if (retryUploadBtn){
+                retryUploadBtn.addEventListener('click', function(){
+                  resetForm();
+                  if (fileInput) fileInput.click();
+                });
+              }
+
+              function populateManualFormWithExtracted(data){
+                const header = data.header || {};
+                if (manualForm){
+                  manualForm.querySelector('input[name="invoice_number"]').value = header.invoice_no || '';
+                  manualForm.querySelector('input[name="invoice_date"]').value = header.date || '';
+                  manualForm.querySelector('input[name="subtotal"]').value = header.subtotal || '';
+                  manualForm.querySelector('input[name="tax_amount"]').value = header.tax || '';
+                  manualForm.querySelector('input[name="total_amount"]').value = header.total || '';
+                  manualForm.querySelector('textarea[name="notes"]').value = header.address || '';
+
+                  // Clear existing line items and add extracted ones
+                  const existingItems = lineItemsContainer.querySelectorAll('.line-item-row');
+                  if (existingItems.length > 0){
+                    existingItems.forEach((item, idx) => {
+                      if (idx > 0) item.remove();
+                    });
+                  }
+
+                  // Populate items
+                  if (data.items && data.items.length > 0){
+                    const firstItem = existingItems[0];
+                    data.items.forEach((item, idx) => {
+                      if (idx === 0 && firstItem){
+                        firstItem.querySelector('input[name="item_description[]"]').value = item.description || '';
+                        firstItem.querySelector('input[name="item_qty[]"]').value = item.qty || 1;
+                        firstItem.querySelector('input[name="item_price[]"]').value = item.value || '';
+                      } else {
+                        addLineItem();
+                        const items = lineItemsContainer.querySelectorAll('.line-item-row');
+                        const newItem = items[items.length - 1];
+                        newItem.querySelector('input[name="item_description[]"]').value = item.description || '';
+                        newItem.querySelector('input[name="item_qty[]"]').value = item.qty || 1;
+                        newItem.querySelector('input[name="item_price[]"]').value = item.value || '';
+                      }
+                    });
+                  }
+                }
+              }
+
+              // ===== Manual Entry Tab Handlers =====
+              function addLineItem(){
+                const html = `
+                  <div class="line-item-row card mb-2">
+                    <div class="card-body p-2">
+                      <div class="row g-2">
+                        <div class="col-md-6">
+                          <input type="text" class="form-control form-control-sm" name="item_description[]" placeholder="Item description">
+                        </div>
+                        <div class="col-md-2">
+                          <input type="number" class="form-control form-control-sm" name="item_qty[]" placeholder="Qty" value="1" min="1">
+                        </div>
+                        <div class="col-md-3">
+                          <input type="number" class="form-control form-control-sm" name="item_price[]" placeholder="Unit price" step="0.01" min="0">
+                        </div>
+                        <div class="col-md-1">
+                          <button type="button" class="btn btn-sm btn-danger remove-item">
+                            <i class="fa fa-trash"></i>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                `;
+                const div = document.createElement('div');
+                div.innerHTML = html;
+                const itemRow = div.querySelector('.line-item-row');
+                lineItemsContainer.appendChild(itemRow);
+
+                itemRow.querySelector('.remove-item').addEventListener('click', function(e){
+                  e.preventDefault();
+                  itemRow.remove();
+                });
+              }
+
+              if (addLineItemBtn){
+                addLineItemBtn.addEventListener('click', function(e){
+                  e.preventDefault();
+                  addLineItem();
+                });
+              }
+
+              // Remove line item handler (delegated)
+              lineItemsContainer.addEventListener('click', function(e){
+                if (e.target.closest('.remove-item')){
+                  e.preventDefault();
+                  e.target.closest('.line-item-row').remove();
+                }
+              });
+
+              // Handle manual form submission
+              if (manualForm){
+                manualForm.addEventListener('submit', async function(e){
+                  e.preventDefault();
+
+                  const fd = new FormData(this);
+                  fd.set('selected_order_id', '{{ order.id }}');
+                  fd.set('action', 'create_invoice_manual');
+
+                  startedUploadBtn.disabled = true;
+                  uploadProgress.style.display = 'block';
+
+                  try {
+                    const response = await fetch(window.location.href, {
+                      method: 'POST',
+                      body: fd,
+                      headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRFToken': getCSRF()
+                      }
+                    });
+
+                    if (response.ok){
+                      const result = await response.json();
+                      if (result.success){
+                        window.location.href = result.redirect_url || '/tracker/orders/started/';
+                      } else {
+                        showError(`<i class="fa fa-exclamation-circle me-2"></i>${result.message || 'Failed to create invoice'}`);
+                        uploadProgress.style.display = 'none';
+                      }
+                    } else {
+                      showError('<i class="fa fa-exclamation-circle me-2"></i>Server error. Please try again.');
+                      uploadProgress.style.display = 'none';
+                    }
+                  } catch (err){
+                    console.error('Form submission error:', err);
+                    showError(`<i class="fa fa-exclamation-circle me-2"></i>Error: ${err.message}`);
+                    uploadProgress.style.display = 'none';
+                  } finally {
+                    startedUploadBtn.disabled = false;
                   }
                 });
               }
