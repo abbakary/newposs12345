@@ -52,14 +52,23 @@ class InvoiceDataExtractor:
         self._validate_file()
 
     def _validate_file(self):
-        """Validate that file exists and is supported format."""
+        """Validate that file exists and is supported format.
+
+        This method is defensive: it ensures uploaded file-like objects have
+        a usable name and that the detected extension is supported. Raises
+        a clear ValueError when input is invalid so callers can handle it.
+        """
         if self.file_path:
             path = Path(self.file_path)
             if not path.exists():
                 raise FileNotFoundError(f"File not found: {self.file_path}")
             self.file_extension = path.suffix.lower()
         elif self.file_obj:
-            self.file_extension = Path(self.file_obj.name).suffix.lower()
+            # Uploaded file objects from Django should have a .name attribute.
+            name = getattr(self.file_obj, 'name', None)
+            if not name:
+                raise ValueError("Uploaded file is missing a name attribute")
+            self.file_extension = Path(name).suffix.lower()
         else:
             raise ValueError("Either file_path or file_obj must be provided")
 
@@ -79,10 +88,24 @@ class InvoiceDataExtractor:
             return ""
 
     def _extract_text_from_pdf(self) -> str:
-        """Extract text from PDF using PyMuPDF."""
+        """Extract text from PDF using PyMuPDF.
+
+        Be defensive about reading the uploaded file-like object because some
+        file wrappers may behave differently (e.g. TemporaryUploadedFile).
+        """
         try:
             if self.file_obj:
+                # Ensure we're at the start of the file-like stream
+                try:
+                    self.file_obj.seek(0)
+                except Exception:
+                    pass
+
                 pdf_bytes = self.file_obj.read()
+                if not pdf_bytes:
+                    raise ValueError("Uploaded PDF file appears empty after reading")
+
+                # fitz.open expects bytes-like stream for PDFs
                 doc = fitz.open(stream=pdf_bytes, filetype="pdf")
             else:
                 doc = fitz.open(self.file_path)
@@ -90,26 +113,44 @@ class InvoiceDataExtractor:
             full_text = ""
             for page_num in range(len(doc)):
                 page = doc[page_num]
-                text = page.get_text()
+                try:
+                    text = page.get_text()
+                except Exception:
+                    text = ""
                 full_text += f"\n--- Page {page_num + 1} ---\n{text}"
 
-            doc.close()
+            try:
+                doc.close()
+            except Exception:
+                pass
+
             return full_text
         except Exception as e:
             logger.error(f"Error extracting text from PDF: {e}")
             return ""
 
     def _extract_text_from_image(self) -> str:
-        """Extract text from image using pytesseract."""
+        """Extract text from image using pytesseract.
+
+        Read the uploaded file safely into a BytesIO to avoid issues with
+        file-like wrappers that don't behave like regular file objects.
+        """
         try:
             if self.file_obj:
-                img = Image.open(self.file_obj)
+                try:
+                    self.file_obj.seek(0)
+                except Exception:
+                    pass
+                raw = self.file_obj.read()
+                if not raw:
+                    raise ValueError("Uploaded image file appears empty after reading")
+                img = Image.open(BytesIO(raw))
             else:
                 img = Image.open(self.file_path)
 
             # Enhance image for better OCR
             img = img.convert('RGB')
-            
+
             # Use pytesseract to extract text
             text = pytesseract.image_to_string(img, lang='eng')
             return text
@@ -300,23 +341,34 @@ class InvoiceDataExtractor:
 def process_uploaded_invoice_file(uploaded_file) -> dict:
     """
     Process an uploaded invoice file and extract data.
-    
+
     Args:
         uploaded_file: Django InMemoryUploadedFile or TemporaryUploadedFile
-    
+
     Returns:
         dict with extracted invoice data
     """
+    if not uploaded_file:
+        return {
+            'success': False,
+            'error': 'No uploaded file provided',
+            'data': {}
+        }
+
     try:
+        # Defensive: ensure uploaded_file has a name attribute for extension detection
+        if not getattr(uploaded_file, 'name', None):
+            return {'success': False, 'error': 'Uploaded file missing name', 'data': {}}
+
         extractor = InvoiceDataExtractor(file_obj=uploaded_file)
-        data = extractor.extract_invoice_data()
-        
+        data = extractor.extract_invoice_data() or {}
+
         return {
             'success': True,
             'data': data
         }
     except Exception as e:
-        logger.error(f"Error processing invoice file: {e}")
+        logger.error(f"Error processing invoice file: {e}", exc_info=True)
         return {
             'success': False,
             'error': str(e),
