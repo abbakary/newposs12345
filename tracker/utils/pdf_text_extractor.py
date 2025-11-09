@@ -246,14 +246,28 @@ def parse_invoice_data(text: str) -> dict:
             if address:
                 break
 
+    # Smart fix: If customer_name is empty but address looks like a name, swap them
+    if not customer_name and address and is_likely_customer_name(address):
+        customer_name = address
+        address = None
+
+    # Also check reverse: if customer_name looks like address and address is empty, swap
+    if customer_name and is_likely_address(customer_name) and not is_likely_customer_name(customer_name):
+        if not address:
+            address = customer_name
+            customer_name = None
+
     # Extract phone/tel
-    phone = extract_field_value(r'(?:Tel|Telephone)')
+    phone = extract_field_value(r'(?:Tel|Telephone|Phone)')
     if phone:
         # Remove "Fax" part if followed by fax number
         phone = re.sub(r'\s+Fax\s+.*$', '', phone, flags=re.I).strip()
-        # Validate
+        # Validate - phone should have some digits
         if phone and not re.search(r'\d{5,}', phone):
             phone = None
+        # Clean up - remove common non-digit prefixes and ensure we have a phone
+        if phone:
+            phone = re.sub(r'^(?:Tel|Phone|Telephone)\s*[:=]?\s*', '', phone, flags=re.I).strip()
 
     # Extract email
     email = None
