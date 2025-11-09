@@ -852,12 +852,37 @@
                   manualForm.querySelector('input[name="customer_address"]').value = header.address || '';
 
                   // Populate invoice fields
-                  manualForm.querySelector('input[name="invoice_number"]').value = header.invoice_no || '';
+                  manualForm.querySelector('input[name="invoice_number"]').value = header.invoice_no || header.code_no || '';
                   manualForm.querySelector('input[name="invoice_date"]').value = header.date || '';
                   manualForm.querySelector('input[name="subtotal"]').value = header.subtotal || '';
                   manualForm.querySelector('input[name="tax_amount"]').value = header.tax || '';
                   manualForm.querySelector('input[name="total_amount"]').value = header.total || '';
-                  manualForm.querySelector('textarea[name="notes"]').value = header.address || '';
+
+                  // Populate additional fields
+                  const remarksField = manualForm.querySelector('textarea[name="remarks"]');
+                  if (remarksField){
+                    remarksField.value = header.remarks || '';
+                  }
+
+                  const paymentField = manualForm.querySelector('input[name="payment_method"]');
+                  if (paymentField){
+                    paymentField.value = header.payment_method || '';
+                  }
+
+                  const deliveryField = manualForm.querySelector('input[name="delivery_terms"]');
+                  if (deliveryField){
+                    deliveryField.value = header.delivery_terms || '';
+                  }
+
+                  const attendedField = manualForm.querySelector('input[name="attended_by"]');
+                  if (attendedField){
+                    attendedField.value = header.attended_by || '';
+                  }
+
+                  const kindAttnField = manualForm.querySelector('input[name="kind_attention"]');
+                  if (kindAttnField){
+                    kindAttnField.value = header.kind_attention || '';
+                  }
 
                   // Clear existing line items and add extracted ones
                   const existingItems = lineItemsContainer.querySelectorAll('.line-item-row');
@@ -873,15 +898,19 @@
                     data.items.forEach((item, idx) => {
                       if (idx === 0 && firstItem){
                         firstItem.querySelector('input[name="item_description[]"]').value = item.description || '';
+                        firstItem.querySelector('input[name="item_code[]"]').value = item.code || '';
                         firstItem.querySelector('input[name="item_qty[]"]').value = item.qty || 1;
-                        firstItem.querySelector('input[name="item_price[]"]').value = item.value || '';
+                        firstItem.querySelector('input[name="item_unit[]"]').value = item.unit || '';
+                        firstItem.querySelector('input[name="item_price[]"]').value = item.rate || item.value || '';
                       } else {
                         addLineItem();
                         const items = lineItemsContainer.querySelectorAll('.line-item-row');
                         const newItem = items[items.length - 1];
                         newItem.querySelector('input[name="item_description[]"]').value = item.description || '';
+                        newItem.querySelector('input[name="item_code[]"]').value = item.code || '';
                         newItem.querySelector('input[name="item_qty[]"]').value = item.qty || 1;
-                        newItem.querySelector('input[name="item_price[]"]').value = item.value || '';
+                        newItem.querySelector('input[name="item_unit[]"]').value = item.unit || '';
+                        newItem.querySelector('input[name="item_price[]"]').value = item.rate || item.value || '';
                       }
                     });
                   }
