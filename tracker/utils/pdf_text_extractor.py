@@ -588,19 +588,29 @@ def parse_invoice_data(text: str) -> dict:
             kind_attention = None
 
     # Extract line items with improved detection for various formats
-    # The algorithm:
-    # 1. Find the table header row (contains item-related keywords)
-    # 2. Parse all lines after the header until we hit a totals section
-    # 3. For each item line, extract: description, code, qty, unit, rate, value
+    # The algorithm handles both:
+    # 1. Well-formatted PDFs: table with columns
+    # 2. Scrambled PDFs: descriptions, codes, and amounts scattered
+    #
+    # Strategy:
+    # - Find item section header
+    # - Group consecutive description lines
+    # - Match codes with descriptions
+    # - Extract quantities and amounts
     items = []
     item_section_started = False
     item_header_idx = -1
 
+    # Collect all lines to process
+    line_data = []
     for idx, line in enumerate(lines):
         line_stripped = line.strip()
         if not line_stripped:
             continue
+        line_data.append((idx, line_stripped))
 
+    # Find header and extract section
+    for list_idx, (idx, line_stripped) in enumerate(line_data):
         # Detect item section header - line with multiple item-related keywords
         keyword_count = sum([
             1 if re.search(r'\b(?:Sr|S\.N|Serial|No\.?)\b', line_stripped, re.I) else 0,
@@ -613,11 +623,11 @@ def parse_invoice_data(text: str) -> dict:
 
         if keyword_count >= 3:
             item_section_started = True
-            item_header_idx = idx
+            item_header_idx = list_idx
             continue
 
         # Stop at totals/summary section
-        if item_section_started and idx > item_header_idx + 1:
+        if item_section_started and list_idx > item_header_idx + 1:
             if re.search(r'(?:Net\s*Value|Gross\s*Value|Grand\s*Total|Total\s*:|Payment|Delivery|Remarks|NOTE)', line_stripped, re.I):
                 break
 
