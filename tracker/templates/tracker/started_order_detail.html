@@ -816,15 +816,28 @@
                 manualForm.addEventListener('submit', async function(e){
                   e.preventDefault();
 
-                  const fd = new FormData(this);
-                  fd.set('selected_order_id', '{{ order.id }}');
-                  fd.set('action', 'create_invoice_manual');
+                  // Validate required fields
+                  const customerName = this.querySelector('input[name="customer_name"]').value.trim();
+                  const customerPhone = this.querySelector('input[name="customer_phone"]').value.trim();
+                  const totalAmount = this.querySelector('input[name="total_amount"]').value.trim();
 
-                  startedUploadBtn.disabled = true;
+                  if (!customerName || !customerPhone || !totalAmount){
+                    showError('<i class="fa fa-warning me-2"></i>Please fill in customer name, phone, and total amount.');
+                    return;
+                  }
+
+                  const fd = new FormData(this);
+
+                  // Show loading state
+                  const submitBtn = this.querySelector('button[type="submit"]');
+                  const originalBtnText = submitBtn.innerHTML;
+                  submitBtn.disabled = true;
                   uploadProgress.style.display = 'block';
+                  uploadProgressBar.style.width = '50%';
 
                   try {
-                    const response = await fetch(window.location.href, {
+                    // Call the create-from-upload API endpoint
+                    const response = await fetch('{% url "tracker:api_create_invoice_from_upload" %}', {
                       method: 'POST',
                       body: fd,
                       headers: {
@@ -833,24 +846,27 @@
                       }
                     });
 
-                    if (response.ok){
-                      const result = await response.json();
-                      if (result.success){
-                        window.location.href = result.redirect_url || '/tracker/orders/started/';
-                      } else {
-                        showError(`<i class="fa fa-exclamation-circle me-2"></i>${result.message || 'Failed to create invoice'}`);
-                        uploadProgress.style.display = 'none';
-                      }
+                    uploadProgressBar.style.width = '100%';
+                    const result = await response.json();
+
+                    if (result.success){
+                      showSuccess('<i class="fa fa-check-circle me-2"></i>Invoice created successfully! Redirecting...', false);
+                      setTimeout(function(){
+                        window.location.href = result.redirect_url || ('/tracker/invoices/' + result.invoice_id + '/');
+                      }, 1000);
                     } else {
-                      showError('<i class="fa fa-exclamation-circle me-2"></i>Server error. Please try again.');
+                      showError(`<i class="fa fa-exclamation-circle me-2"></i>${result.message || 'Failed to create invoice'}`);
                       uploadProgress.style.display = 'none';
+                      uploadProgressBar.style.width = '0%';
                     }
                   } catch (err){
                     console.error('Form submission error:', err);
                     showError(`<i class="fa fa-exclamation-circle me-2"></i>Error: ${err.message}`);
                     uploadProgress.style.display = 'none';
+                    uploadProgressBar.style.width = '0%';
                   } finally {
-                    startedUploadBtn.disabled = false;
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = originalBtnText;
                   }
                 });
               }
