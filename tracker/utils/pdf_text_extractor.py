@@ -175,9 +175,7 @@ def parse_invoice_data(text: str) -> dict:
         """
         search_text = text_to_search or normalized_text
         patterns = label_patterns if isinstance(label_patterns, list) else [label_patterns]
-        stop_patterns = stop_at_patterns or [
-            r'Tel|Fax|Del|Ref|Date|Kind|Attended|Type|Payment|Delivery|Reference|PI|Cust|Qty|Rate|Value|Address|Customer|Code'
-        ]
+        stop_patterns = stop_at_patterns or r'Tel|Fax|Del|Ref|Date|Kind|Attended|Type|Payment|Delivery|Reference|PI|Cust|Qty|Rate|Value|Address|Customer|Code'
 
         for pattern in patterns:
             # Strategy 1: Look for "Label: Value" or "Label = Value" on same line
