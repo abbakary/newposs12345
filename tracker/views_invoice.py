@@ -290,6 +290,18 @@ def api_upload_extract_invoice(request):
         inv.tax_amount = header.get('tax') or Decimal('0')
         inv.total_amount = header.get('total') or (inv.subtotal + inv.tax_amount)
 
+        # Set tax rate if extracted (percentage)
+        if header.get('tax_rate'):
+            try:
+                tax_rate_val = header.get('tax_rate')
+                if isinstance(tax_rate_val, str):
+                    tax_rate_val = Decimal(tax_rate_val.replace('%', '').strip())
+                else:
+                    tax_rate_val = Decimal(str(tax_rate_val))
+                inv.tax_rate = tax_rate_val
+            except (ValueError, TypeError):
+                inv.tax_rate = Decimal('0')
+
         # Ensure totals are valid
         if inv.subtotal is None:
             inv.subtotal = Decimal('0')
