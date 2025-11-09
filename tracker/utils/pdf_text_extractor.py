@@ -602,7 +602,12 @@ def parse_invoice_data(text: str) -> dict:
         'subtotal': subtotal,
         'tax': tax,
         'total': total,
-        'items': items
+        'items': items,
+        'payment_method': payment_method,
+        'delivery_terms': delivery_terms,
+        'remarks': remarks,
+        'attended_by': attended_by,
+        'kind_attention': kind_attention
     }
 
 
