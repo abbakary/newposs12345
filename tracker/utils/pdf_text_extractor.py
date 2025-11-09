@@ -759,6 +759,28 @@ def parse_invoice_data(text: str) -> dict:
                 except Exception as e:
                     logger.warning(f"Error parsing item line: {line_stripped}, {e}")
 
+            # Process line with only text (description line in scrambled format)
+            elif text_parts and not numbers:
+                # This is likely a description line in a scrambled PDF
+                # Check if we should add it as a new item or continue the previous one
+                full_text = ' '.join(text_parts)
+
+                # If it looks like a product/service description, add as new item
+                # Check for unit indicators which signal continuation
+                unit_match = re.search(r'\b(NOS|PCS|KG|HR|LTR|PIECES?|UNITS?|BOX|CASE|SETS?|PC|KIT|UNT)\b', full_text, re.I)
+
+                if full_text and len(full_text) > 3:
+                    # New item with just description
+                    item = {
+                        'description': full_text[:255],
+                        'qty': 1,
+                        'unit': unit_match.group(1).upper() if unit_match else None,
+                        'value': None,
+                        'rate': None,
+                        'code': None,
+                    }
+                    items.append(item)
+
             # Process line with only numbers (continuation of item data)
             elif numbers and not text_parts:
                 # Skip standalone number lines (likely part of header or footer)
@@ -769,9 +791,37 @@ def parse_invoice_data(text: str) -> dict:
                     float_numbers = [float(n.replace(',', '')) for n in numbers]
                     # Treat largest number as value
                     value = max(float_numbers)
-                    if value > 0 and items:
-                        # Only update if item doesn't have a value yet
-                        if not items[-1].get('value'):
+                    qty = None
+                    rate = None
+
+                    # If we have multiple numbers, try to identify qty and rate
+                    if len(float_numbers) == 2:
+                        # Could be qty + value, or rate + value
+                        if float_numbers[0] < 100 and float_numbers[0] == int(float_numbers[0]):
+                            qty = int(float_numbers[0])
+                            value = float_numbers[1]
+                        elif float_numbers[1] < 100 and float_numbers[1] == int(float_numbers[1]):
+                            qty = int(float_numbers[1])
+                            value = float_numbers[0]
+                    elif len(float_numbers) == 3:
+                        # Could be qty + rate + value
+                        max_val = max(float_numbers)
+                        min_val = min(float_numbers)
+                        mid_val = sum(float_numbers) - max_val - min_val
+
+                        if min_val < 100 and min_val == int(min_val):
+                            qty = int(min_val)
+                            if items and mid_val > 0:
+                                rate = to_decimal(str(mid_val))
+                        value = max_val
+
+                    # Apply to last item if it exists
+                    if items:
+                        if qty and not items[-1].get('qty'):
+                            items[-1]['qty'] = qty
+                        if rate and not items[-1].get('rate'):
+                            items[-1]['rate'] = rate
+                        if value > 0 and not items[-1].get('value'):
                             items[-1]['value'] = to_decimal(str(value))
                 except Exception:
                     pass
