@@ -100,11 +100,18 @@ def api_extract_invoice_preview(request):
             'subtotal': float(header.get('subtotal') or 0),
             'tax': float(header.get('tax') or 0),
             'total': float(header.get('total') or 0),
+            'payment_method': header.get('payment_method'),
+            'delivery_terms': header.get('delivery_terms'),
+            'remarks': header.get('remarks'),
+            'attended_by': header.get('attended_by'),
+            'kind_attention': header.get('kind_attention'),
         },
         'items': [
             {
                 'description': item.get('description', ''),
-                'qty': int(item.get('qty', 1)),
+                'qty': int(item.get('qty', 1)) if isinstance(item.get('qty'), (int, float)) else 1,
+                'unit': item.get('unit'),
+                'code': item.get('code'),
                 'value': float(item.get('value') or 0)
             }
             for item in items
