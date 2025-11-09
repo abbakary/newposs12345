@@ -202,48 +202,100 @@
                     <form id="manualInvoiceForm" method="post">
                       {% csrf_token %}
                       <input type="hidden" name="action" value="create_invoice_manual">
+                      <input type="hidden" name="selected_order_id" value="{{ order.id }}">
+                      {% if vehicle and vehicle.plate_number %}<input type="hidden" name="plate" value="{{ vehicle.plate_number }}">{% endif %}
                       <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
-                        <div class="row mb-3">
-                          <div class="col-md-6">
-                            <label class="form-label fw-bold">Invoice Number</label>
-                            <input type="text" name="invoice_number" class="form-control" placeholder="e.g., INV-001">
+                        <!-- Customer Section -->
+                        <div class="card mb-3">
+                          <div class="card-header bg-light">
+                            <strong><i class="fa fa-user me-2"></i>Customer Information</strong>
                           </div>
-                          <div class="col-md-6">
-                            <label class="form-label fw-bold">Invoice Date</label>
-                            <input type="date" name="invoice_date" class="form-control" value="{% now 'Y-m-d' %}">
-                          </div>
-                        </div>
-
-                        <div class="row mb-3">
-                          <div class="col-md-12">
-                            <label class="form-label fw-bold">Customer Name</label>
-                            <input type="text" name="customer_name" class="form-control" value="{{ order.customer.full_name }}" readonly>
-                          </div>
-                        </div>
-
-                        <div class="row mb-3">
-                          <div class="col-md-6">
-                            <label class="form-label fw-bold">Subtotal</label>
-                            <div class="input-group">
-                              <span class="input-group-text">{{ order.branch.code|default:"TSH" }}</span>
-                              <input type="number" name="subtotal" class="form-control manual-amount" step="0.01" min="0" placeholder="0.00">
+                          <div class="card-body">
+                            <div class="row mb-2">
+                              <div class="col-md-6">
+                                <label class="form-label">Full Name *</label>
+                                <input type="text" name="customer_name" class="form-control" value="{{ order.customer.full_name }}" placeholder="Customer full name" required>
+                              </div>
+                              <div class="col-md-6">
+                                <label class="form-label">Phone *</label>
+                                <input type="tel" name="customer_phone" class="form-control" placeholder="Phone number" required>
+                              </div>
+                            </div>
+                            <div class="row mb-2">
+                              <div class="col-md-6">
+                                <label class="form-label">Email</label>
+                                <input type="email" name="customer_email" class="form-control" placeholder="email@example.com">
+                              </div>
+                              <div class="col-md-6">
+                                <label class="form-label">Type</label>
+                                <select name="customer_type" class="form-select">
+                                  <option value="personal">Personal</option>
+                                  <option value="company">Company</option>
+                                  <option value="ngo">NGO</option>
+                                  <option value="government">Government</option>
+                                </select>
+                              </div>
+                            </div>
+                            <div class="row mb-2">
+                              <div class="col-md-12">
+                                <label class="form-label">Address</label>
+                                <input type="text" name="customer_address" class="form-control" placeholder="Customer address">
+                              </div>
                             </div>
                           </div>
-                          <div class="col-md-6">
-                            <label class="form-label fw-bold">Tax/VAT</label>
-                            <div class="input-group">
-                              <span class="input-group-text">{{ order.branch.code|default:"TSH" }}</span>
-                              <input type="number" name="tax_amount" class="form-control manual-amount" step="0.01" min="0" placeholder="0.00">
+                        </div>
+
+                        <!-- Invoice Section -->
+                        <div class="card mb-3">
+                          <div class="card-header bg-light">
+                            <strong><i class="fa fa-file-invoice me-2"></i>Invoice Information</strong>
+                          </div>
+                          <div class="card-body">
+                            <div class="row mb-2">
+                              <div class="col-md-6">
+                                <label class="form-label fw-bold">Invoice Number</label>
+                                <input type="text" name="invoice_number" class="form-control" placeholder="e.g., INV-001">
+                              </div>
+                              <div class="col-md-6">
+                                <label class="form-label fw-bold">Invoice Date</label>
+                                <input type="date" name="invoice_date" class="form-control" value="{% now 'Y-m-d' %}" required>
+                              </div>
                             </div>
                           </div>
                         </div>
 
-                        <div class="row mb-3">
-                          <div class="col-md-12">
-                            <label class="form-label fw-bold">Total Amount</label>
-                            <div class="input-group">
-                              <span class="input-group-text">{{ order.branch.code|default:"TSH" }}</span>
-                              <input type="number" name="total_amount" class="form-control" step="0.01" min="0" placeholder="0.00" required>
+                        <!-- Payment Section -->
+                        <div class="card mb-3">
+                          <div class="card-header bg-light">
+                            <strong><i class="fa fa-money me-2"></i>Payment Information</strong>
+                          </div>
+                          <div class="card-body">
+
+                        <div class="row mb-2">
+                              <div class="col-md-6">
+                                <label class="form-label fw-bold">Subtotal</label>
+                                <div class="input-group">
+                                  <span class="input-group-text">{{ order.branch.code|default:"TSH" }}</span>
+                                  <input type="number" name="subtotal" class="form-control manual-amount" step="0.01" min="0" placeholder="0.00">
+                                </div>
+                              </div>
+                              <div class="col-md-6">
+                                <label class="form-label fw-bold">Tax/VAT</label>
+                                <div class="input-group">
+                                  <span class="input-group-text">{{ order.branch.code|default:"TSH" }}</span>
+                                  <input type="number" name="tax_amount" class="form-control manual-amount" step="0.01" min="0" placeholder="0.00">
+                                </div>
+                              </div>
+                            </div>
+
+                            <div class="row mb-2">
+                              <div class="col-md-12">
+                                <label class="form-label fw-bold">Total Amount *</label>
+                                <div class="input-group">
+                                  <span class="input-group-text">{{ order.branch.code|default:"TSH" }}</span>
+                                  <input type="number" name="total_amount" class="form-control" step="0.01" min="0" placeholder="0.00" required>
+                                </div>
+                              </div>
                             </div>
                           </div>
                         </div>
