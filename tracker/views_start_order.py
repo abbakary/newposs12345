@@ -5,15 +5,19 @@ Allows users to quickly start an order with plate number, then complete the orde
 
 import json
 import logging
+from datetime import datetime
+from decimal import Decimal
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
+from django.contrib import messages
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
 from django.db import transaction
 
-from .models import Order, Customer, Vehicle, Branch, ServiceType, ServiceAddon, InventoryItem
+from .models import Order, Customer, Vehicle, Branch, ServiceType, ServiceAddon, InventoryItem, Invoice, InvoiceLineItem
 from .utils import get_user_branch
+from .services import OrderService
 
 logger = logging.getLogger(__name__)
 
@@ -335,7 +339,94 @@ def started_order_detail(request, order_id):
     if request.method == 'POST':
         # Handle form submissions for different sections
         action = request.POST.get('action')
-        
+
+        if action == 'create_invoice_manual':
+            # Handle manual invoice creation from started order detail
+            try:
+                invoice_number = request.POST.get('invoice_number', '').strip() or f"MANUAL-{timezone.now().strftime('%Y%m%d%H%M%S')}"
+                invoice_date_str = request.POST.get('invoice_date', '')
+                subtotal = request.POST.get('subtotal', '0')
+                tax_amount = request.POST.get('tax_amount', '0')
+                total_amount = request.POST.get('total_amount', '0')
+                notes = request.POST.get('notes', '').strip()
+
+                # Parse date
+                try:
+                    invoice_date = datetime.strptime(invoice_date_str, '%Y-%m-%d').date() if invoice_date_str else timezone.localdate()
+                except Exception:
+                    invoice_date = timezone.localdate()
+
+                # Create invoice
+                inv = Invoice()
+                inv.branch = user_branch
+                inv.order = order
+                inv.customer = order.customer
+                inv.reference = invoice_number
+                inv.invoice_date = invoice_date
+                inv.notes = notes
+                inv.subtotal = Decimal(str(subtotal or '0').replace(',', ''))
+                inv.tax_amount = Decimal(str(tax_amount or '0').replace(',', ''))
+                inv.total_amount = Decimal(str(total_amount or '0').replace(',', ''))
+                inv.created_by = request.user
+                inv.generate_invoice_number()
+                inv.save()
+
+                # Add line items
+                item_descriptions = request.POST.getlist('item_description[]')
+                item_qtys = request.POST.getlist('item_qty[]')
+                item_prices = request.POST.getlist('item_price[]')
+
+                for desc, qty, price in zip(item_descriptions, item_qtys, item_prices):
+                    if desc and desc.strip():
+                        try:
+                            line = InvoiceLineItem(
+                                invoice=inv,
+                                description=desc.strip(),
+                                quantity=int(qty or 1),
+                                unit_price=Decimal(str(price or '0').replace(',', ''))
+                            )
+                            line.save()
+                        except Exception as e:
+                            logger.warning(f"Failed to create invoice line item: {e}")
+
+                # Recalculate totals
+                inv.calculate_totals()
+                inv.save()
+
+                # Update started order if applicable
+                try:
+                    order = OrderService.update_order_from_invoice(
+                        order=order,
+                        customer=order.customer,
+                        vehicle=order.vehicle,
+                        description=order.description
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to update order from invoice: {e}")
+
+                # Return success response
+                if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    return JsonResponse({
+                        'success': True,
+                        'message': 'Invoice created successfully',
+                        'invoice_id': inv.id,
+                        'invoice_number': inv.invoice_number,
+                        'redirect_url': f'/tracker/invoices/{inv.id}/'
+                    })
+                else:
+                    return redirect('tracker:invoice_detail', invoice_id=inv.id)
+
+            except Exception as e:
+                logger.error(f"Error creating manual invoice: {e}")
+                if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    return JsonResponse({
+                        'success': False,
+                        'message': f'Failed to create invoice: {str(e)}'
+                    })
+                else:
+                    messages.error(request, f'Failed to create invoice: {str(e)}')
+                    return redirect('tracker:started_order_detail', order_id=order.id)
+
         if action == 'update_customer':
             # Update customer details
             order.customer.full_name = request.POST.get('full_name', order.customer.full_name)

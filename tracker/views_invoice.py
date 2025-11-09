@@ -18,6 +18,7 @@ from django.db import transaction
 from .models import Invoice, InvoiceLineItem, InvoicePayment, Order, Customer, Vehicle, InventoryItem
 from .forms import InvoiceForm, InvoiceLineItemForm, InvoicePaymentForm
 from .utils import get_user_branch
+from .services import OrderService, CustomerService, VehicleService
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,6 @@ def api_search_started_orders(request):
     Returns JSON with list of available started orders
     """
     from django.http import JsonResponse
-    from .services import OrderService
 
     plate = (request.GET.get('plate') or '').strip().upper()
     if not plate:
@@ -84,11 +84,7 @@ def api_upload_extract_invoice(request):
       - If no match but plate provided, create a temporary customer (Plate {plate}) and create order.
       - If no match and no plate, return parsed data for manual review.
     """
-    from .services import CustomerService, OrderService, VehicleService
-    from .models import Customer, Invoice, InvoiceLineItem
-    from .utils import get_user_branch
     from tracker.utils.invoice_extractor import extract_from_bytes
-    from decimal import Decimal
     import traceback
 
     user_branch = get_user_branch(request.user)
@@ -104,90 +100,140 @@ def api_upload_extract_invoice(request):
         logger.error(f"Failed to read uploaded file: {e}")
         return JsonResponse({'success': False, 'message': 'Failed to read uploaded file'})
 
-    # Run extractor
+    # Run PDF text extractor (no OCR required)
     try:
-        extracted = extract_from_bytes(file_bytes)
+        from tracker.utils.pdf_text_extractor import extract_from_bytes as extract_pdf_text
+        extracted = extract_pdf_text(file_bytes, uploaded.name if uploaded else 'document.pdf')
     except Exception as e:
-        logger.error(f"Extractor error: {e}\n{traceback.format_exc()}")
-        return JsonResponse({'success': False, 'message': 'Extraction failed', 'error': str(e)})
+        logger.error(f"PDF extraction error: {e}\n{traceback.format_exc()}")
+        return JsonResponse({
+            'success': False,
+            'message': 'Failed to extract invoice data from file',
+            'error': str(e),
+            'ocr_available': False
+        })
 
-    if extracted.get('error'):
-        return JsonResponse({'success': False, 'message': extracted.get('message', 'Extraction failed'), 'data': extracted})
+    # If extraction failed, return error but allow manual entry
+    if not extracted.get('success'):
+        return JsonResponse({
+            'success': False,
+            'message': extracted.get('message', 'Could not extract data from file. Please enter invoice details manually.'),
+            'error': extracted.get('error'),
+            'ocr_available': extracted.get('ocr_available', False),
+            'data': extracted  # Include any partial data for manual completion
+        })
 
     header = extracted.get('header') or {}
     items = extracted.get('items') or []
     raw_text = extracted.get('raw_text') or ''
 
-    # Attempt to match customer by name
-    cust_name = (header.get('customer_name') or '').strip()
-    matched_customer = None
-    if cust_name:
-        try:
-            matched_customer = Customer.objects.filter(branch=user_branch, full_name__iexact=cust_name).first()
-        except Exception:
-            matched_customer = None
-
-    selected_order = None
-    # If client provided selected_order_id, use it
+    # Get selected_order_id and plate from POST
     selected_order_id = request.POST.get('selected_order_id') or None
     plate = (request.POST.get('plate') or '').strip().upper() or None
 
+    # Try to load the selected order first
+    selected_order = None
     if selected_order_id:
         try:
             selected_order = Order.objects.get(id=int(selected_order_id), branch=user_branch)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Selected order {selected_order_id} not found: {e}")
             selected_order = None
 
     # If no selected_order but plate provided, find started order
     if not selected_order and plate:
         try:
             selected_order = OrderService.find_started_order_by_plate(user_branch, plate)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Could not find started order for plate {plate}: {e}")
             selected_order = None
 
-    # If matched customer found: proceed to create invoice and link
-    if matched_customer:
-        customer_obj = matched_customer
-    else:
-        # If no matched customer but plate available, create temporary customer
-        if plate:
-            try:
-                temp_name = f"Plate {plate}"
-                temp_phone = f"PLATE_{plate}"
-                customer_obj, created = CustomerService.create_or_get_customer(
-                    branch=user_branch,
-                    full_name=temp_name,
-                    phone=temp_phone,
-                    email=None,
-                    address=None,
-                    create_if_missing=True
-                )
-            except Exception as e:
-                logger.warning(f"Failed to create temp customer for plate {plate}: {e}")
-                customer_obj = None
-        else:
+    # Determine customer to use
+    customer_obj = None
+
+    # First, try to match customer by extracted name
+    cust_name = (header.get('customer_name') or '').strip()
+    if cust_name:
+        try:
+            customer_obj = Customer.objects.filter(branch=user_branch, full_name__iexact=cust_name).first()
+        except Exception:
+            pass
+
+    # If no match by name, use customer from selected order if available
+    if not customer_obj and selected_order:
+        customer_obj = selected_order.customer
+
+    # If still no customer, create temporary customer using plate if available
+    if not customer_obj and plate:
+        try:
+            temp_name = f"Plate {plate}"
+            temp_phone = f"PLATE_{plate}"
+            customer_obj, created = CustomerService.create_or_get_customer(
+                branch=user_branch,
+                full_name=temp_name,
+                phone=temp_phone,
+                email=None,
+                address=None,
+                create_if_missing=True
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create temp customer for plate {plate}: {e}")
             customer_obj = None
 
-    # If still no customer_obj, return parsed data for manual review
+    # If still no customer_obj, require manual entry
     if not customer_obj:
-        return JsonResponse({'success': False, 'message': 'Customer not found. Manual review required.', 'data': extracted})
+        logger.warning("No customer found for invoice upload. Extraction data returned for manual review.")
+        return JsonResponse({
+            'success': False,
+            'message': 'Customer not identified. Please manually select or create a customer and try again.',
+            'data': extracted,
+            'ocr_available': extracted.get('ocr_available', False)
+        })
 
     # Ensure vehicle if plate
     vehicle = None
     if plate and customer_obj:
         try:
             vehicle = VehicleService.create_or_get_vehicle(customer=customer_obj, plate_number=plate)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to create/get vehicle for plate {plate}: {e}")
             vehicle = None
 
     # Create or attach order if needed
     order = selected_order
     if not order and customer_obj:
         try:
-            # Create a new order for this customer (brief order record)
-            order = OrderService.create_order(customer=customer_obj, order_type='service', branch=user_branch, vehicle=vehicle, description=f'Auto-created from invoice upload {header.get("invoice_no") or ""}')
+            # Only create a new order if this is not a temporary customer
+            is_temp = (str(customer_obj.full_name or '').startswith('Plate ') and
+                      str(customer_obj.phone or '').startswith('PLATE_'))
+
+            if is_temp:
+                # For temp customers, use selected order or create minimal order
+                if not order:
+                    order = Order.objects.create(
+                        customer=customer_obj,
+                        vehicle=vehicle,
+                        branch=user_branch,
+                        type='service',
+                        status='created',
+                        started_at=timezone.now(),
+                        description=f'Auto-created from invoice upload'
+                    )
+            else:
+                # For real customers, use OrderService
+                try:
+                    order = OrderService.create_order(
+                        customer=customer_obj,
+                        order_type='service',
+                        branch=user_branch,
+                        vehicle=vehicle,
+                        description=f'Auto-created from invoice upload'
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to create order from invoice upload: {e}")
+                    order = None
         except Exception as e:
-            logger.warning(f"Failed to create order from invoice upload: {e}")
+            logger.warning(f"Error handling order creation: {e}")
             order = None
 
     # Create invoice record
@@ -196,7 +242,8 @@ def api_upload_extract_invoice(request):
         inv.branch = user_branch
         inv.order = order
         inv.customer = customer_obj
-        # map fields
+
+        # Parse invoice date
         inv.invoice_date = None
         if header.get('date'):
             # Try parse date in common formats
@@ -208,41 +255,85 @@ def api_upload_extract_invoice(request):
                     continue
         if not inv.invoice_date:
             inv.invoice_date = timezone.localdate()
-        inv.reference = header.get('invoice_no') or header.get('code_no') or ''
-        inv.notes = (header.get('address') or '')
-        # set monetary fields
-        inv.subtotal = (header.get('net_value') or Decimal('0'))
-        inv.tax_amount = (header.get('vat') or Decimal('0'))
-        inv.total_amount = (header.get('gross_value') or (inv.subtotal + inv.tax_amount))
+
+        # Set invoice details
+        inv.reference = (header.get('invoice_no') or header.get('code_no') or '').strip() or f"UPLOAD-{timezone.now().strftime('%Y%m%d%H%M%S')}"
+        inv.notes = (header.get('address') or '').strip() or ''
+
+        # Set monetary fields with proper defaults
+        inv.subtotal = header.get('net_value') or Decimal('0')
+        inv.tax_amount = header.get('vat') or Decimal('0')
+        inv.total_amount = header.get('gross_value') or (inv.subtotal + inv.tax_amount)
+
+        # Ensure totals are valid
+        if inv.subtotal is None:
+            inv.subtotal = Decimal('0')
+        if inv.tax_amount is None:
+            inv.tax_amount = Decimal('0')
+        if inv.total_amount is None:
+            inv.total_amount = inv.subtotal + inv.tax_amount
+
         inv.created_by = request.user
         inv.generate_invoice_number()
         inv.save()
 
-        # Create line items
-        for it in items:
-            try:
-                qty = it.get('qty') or 1
-                unit_price = it.get('value') or it.get('rate') or Decimal('0')
-                line = InvoiceLineItem(invoice=inv, code=it.get('item_code') or None, description=it.get('description') or 'Item', quantity=qty, unit=it.get('unit') or None, unit_price=unit_price)
-                line.save()
-            except Exception as e:
-                logger.warning(f"Failed to create invoice line item: {e}")
+        # Create line items from extraction
+        if items:
+            for it in items:
+                try:
+                    qty = it.get('qty') or 1
+                    unit_price = it.get('value') or it.get('rate') or Decimal('0')
+
+                    # Ensure proper type conversion
+                    if qty is not None:
+                        try:
+                            qty = int(qty)
+                        except (ValueError, TypeError):
+                            qty = 1
+
+                    line = InvoiceLineItem(
+                        invoice=inv,
+                        code=it.get('item_code') or None,
+                        description=it.get('description') or 'Item',
+                        quantity=qty,
+                        unit=it.get('unit') or None,
+                        unit_price=unit_price
+                    )
+                    line.save()
+                except Exception as e:
+                    logger.warning(f"Failed to create invoice line item: {e}")
 
         # Recalculate totals
-        inv.calculate_totals().save()
+        inv.calculate_totals()
+        inv.save()
 
         # If linked to started order, update order with finalized details
         if order:
             try:
-                order = OrderService.update_order_from_invoice(order=order, customer=customer_obj, vehicle=vehicle, description=order.description)
+                order = OrderService.update_order_from_invoice(
+                    order=order,
+                    customer=customer_obj,
+                    vehicle=vehicle,
+                    description=order.description
+                )
             except Exception as e:
                 logger.warning(f"Failed to update order from invoice: {e}")
 
-        return JsonResponse({'success': True, 'message': 'Invoice created from upload', 'invoice_id': inv.id, 'invoice_number': inv.invoice_number, 'redirect_url': request.build_absolute_uri('/tracker/invoices/' + str(inv.id) + '/')})
+        return JsonResponse({
+            'success': True,
+            'message': 'Invoice created from upload',
+            'invoice_id': inv.id,
+            'invoice_number': inv.invoice_number,
+            'redirect_url': request.build_absolute_uri(f'/tracker/invoices/{inv.id}/')
+        })
 
     except Exception as e:
         logger.error(f"Error saving invoice from extraction: {e}\n{traceback.format_exc()}")
-        return JsonResponse({'success': False, 'message': 'Failed to save invoice', 'error': str(e)})
+        return JsonResponse({
+            'success': False,
+            'message': 'Failed to save invoice',
+            'error': str(e)
+        })
 
 
 @login_required

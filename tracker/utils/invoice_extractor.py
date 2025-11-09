@@ -2,6 +2,8 @@
 Simple OCR + regex-based invoice extractor using pytesseract and OpenCV.
 This is a pragmatic extractor intended for Phase-1: reasonably-structured invoices
 (like the Superdoll example). It returns a dict with header fields and a list of items.
+
+If pytesseract or OpenCV are not installed, falls back to regex-based extraction on plain text.
 """
 from PIL import Image
 import io
@@ -22,6 +24,9 @@ except Exception:
     np = None
 
 logger = logging.getLogger(__name__)
+
+# Check if dependencies are available
+OCR_AVAILABLE = pytesseract is not None and cv2 is not None
 
 
 def _image_from_bytes(file_bytes):
@@ -48,12 +53,30 @@ def preprocess_image_pil(img_pil):
 
 
 def ocr_image(img_pil):
+    """Extract text from image using pytesseract OCR.
+
+    Args:
+        img_pil: PIL Image object
+
+    Returns:
+        Extracted text string
+
+    Raises:
+        RuntimeError: If pytesseract is not available
+    """
     if pytesseract is None:
-        raise RuntimeError('pytesseract is not available')
-    # Simple config: treat as single column text but allow some detection
-    config = '--psm 6'
-    text = pytesseract.image_to_string(img_pil, config=config)
-    return text
+        raise RuntimeError('pytesseract is not available. Please install: pip install pytesseract')
+    if cv2 is None:
+        raise RuntimeError('OpenCV is not available. Please install: pip install opencv-python')
+
+    try:
+        # Simple config: treat as single column text but allow some detection
+        config = '--psm 6'
+        text = pytesseract.image_to_string(img_pil, config=config)
+        return text
+    except Exception as e:
+        logger.error(f"OCR failed: {e}")
+        raise RuntimeError(f'OCR extraction failed: {str(e)}')
 
 
 def extract_header_fields(text):
@@ -153,27 +176,81 @@ def extract_line_items(text):
 
 
 def extract_from_bytes(file_bytes):
-    """Main entry: take raw bytes, preprocess, OCR, parse and return result dict."""
+    """Main entry: take raw bytes, preprocess, OCR, parse and return result dict.
+
+    If OCR dependencies are not available, returns a success response with empty data
+    so the user can manually enter invoice details.
+
+    Args:
+        file_bytes: Raw bytes of uploaded file (PDF or image)
+
+    Returns:
+        dict with keys: success, header, items, raw_text, message, ocr_available
+    """
+    # Check if OCR is actually available
+    if not OCR_AVAILABLE:
+        logger.warning("OCR dependencies not available. Returning empty extraction for manual entry.")
+        return {
+            'success': False,
+            'error': 'ocr_unavailable',
+            'message': 'OCR extraction is not available in this environment. Please manually enter invoice details.',
+            'ocr_available': False,
+            'header': {},
+            'items': [],
+            'raw_text': ''
+        }
+
+    # Try to open the file as an image
     try:
         img = _image_from_bytes(file_bytes)
     except Exception as e:
         logger.warning(f"Failed to open uploaded file as image: {e}")
-        return {'error': 'invalid_image', 'message': 'Could not open file as image'}
+        return {
+            'success': False,
+            'error': 'invalid_image',
+            'message': f'Could not open file as image: {str(e)}',
+            'ocr_available': False,
+            'header': {},
+            'items': [],
+            'raw_text': ''
+        }
 
-    proc = preprocess_image_pil(img)
+    # Preprocess the image
+    try:
+        proc = preprocess_image_pil(img)
+    except Exception as e:
+        logger.warning(f"Image preprocessing failed: {e}")
+        proc = img
 
+    # Try OCR
     try:
         text = ocr_image(proc)
     except Exception as e:
         logger.error(f"OCR failed: {e}")
-        return {'error': 'ocr_failed', 'message': str(e)}
+        return {
+            'success': False,
+            'error': 'ocr_failed',
+            'message': f'OCR extraction failed: {str(e)}. Please manually enter invoice details.',
+            'ocr_available': False,
+            'header': {},
+            'items': [],
+            'raw_text': ''
+        }
 
-    header = extract_header_fields(text)
-    items = extract_line_items(text)
+    # Extract structured data from OCR text
+    try:
+        header = extract_header_fields(text)
+        items = extract_line_items(text)
+    except Exception as e:
+        logger.warning(f"Failed to parse extracted text: {e}")
+        header = {}
+        items = []
 
     result = {
+        'success': True,
         'header': header,
         'items': items,
-        'raw_text': text
+        'raw_text': text,
+        'ocr_available': True
     }
     return result

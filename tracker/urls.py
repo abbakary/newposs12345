@@ -8,6 +8,7 @@ from .views_api_fix import api_customer_groups_data_fixed
 from . import branch_metrics as views_branch
 from . import views_start_order
 from . import views_invoice
+from . import views_invoice_upload
 
 app_name = "tracker"
 
@@ -154,6 +155,10 @@ urlpatterns = [
     path("invoices/create/<int:order_id>/", views_invoice.invoice_create, name="invoice_create_from_order"),
     path("api/invoices/search-started-orders/", views_invoice.api_search_started_orders, name="api_search_started_orders"),
     path("api/invoices/upload-extract/", views_invoice.api_upload_extract_invoice, name="api_upload_extract_invoice"),
+
+    # Invoice upload (two-step process)
+    path("api/invoices/extract-preview/", views_invoice_upload.api_extract_invoice_preview, name="api_extract_invoice_preview"),
+    path("api/invoices/create-from-upload/", views_invoice_upload.api_create_invoice_from_upload, name="api_create_invoice_from_upload"),
     path("invoices/<int:pk>/", views_invoice.invoice_detail, name="invoice_detail"),
     path("invoices/<int:pk>/print/", views_invoice.invoice_print, name="invoice_print"),
     path("invoices/<int:pk>/pdf/", views_invoice.invoice_pdf, name="invoice_pdf"),
