@@ -410,6 +410,48 @@ def parse_invoice_data(text: str) -> dict:
         r'Total\s*(?::|\s)'
     ]))
 
+    # Extract payment method
+    payment_method = extract_field_value(r'(?:Payment|Payment\s*Method|Payment\s*Type)')
+    if payment_method:
+        # Clean up the payment method value
+        payment_method = re.sub(r'Delivery.*$', '', payment_method, flags=re.I).strip()
+        if payment_method and len(payment_method) > 1:
+            # Map common payment method strings to standard values
+            payment_map = {
+                'cash': 'cash',
+                'cheque': 'cheque',
+                'chq': 'cheque',
+                'bank': 'bank_transfer',
+                'transfer': 'bank_transfer',
+                'card': 'card',
+                'mpesa': 'mpesa',
+                'credit': 'on_credit',
+                'delivery': 'on_delivery',
+                'cod': 'on_delivery',
+            }
+            for key, val in payment_map.items():
+                if key in payment_method.lower():
+                    payment_method = val
+                    break
+
+    # Extract delivery terms
+    delivery_terms = extract_field_value(r'(?:Delivery|Delivery\s*Terms)')
+    if delivery_terms:
+        delivery_terms = re.sub(r'(?:Remarks|Notes|NOTE).*$', '', delivery_terms, flags=re.I).strip()
+
+    # Extract remarks/notes
+    remarks = extract_field_value(r'(?:Remarks|Notes|NOTE)')
+    if remarks:
+        # Clean up - remove trailing labels and numbers
+        remarks = re.sub(r'(?:\d+\s*:|^NOTE\s*\d+\s*:)', '', remarks, flags=re.I).strip()
+        remarks = re.sub(r'(?:Payment|Delivery|Due|See).*$', '', remarks, flags=re.I).strip()
+
+    # Extract "Attended By" field
+    attended_by = extract_field_value(r'(?:Attended\s*By|Attended|Served\s*By)')
+
+    # Extract "Kind Attention" field
+    kind_attention = extract_field_value(r'(?:Kind\s*Attention|Kind\s*Attn)')
+
     # Extract line items with improved detection for various formats
     # The algorithm:
     # 1. Find the table header row (contains item-related keywords)
