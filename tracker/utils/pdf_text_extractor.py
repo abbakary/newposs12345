@@ -632,7 +632,7 @@ def parse_invoice_data(text: str) -> dict:
                 break
 
         # Parse item lines (after header starts)
-        if item_section_started and idx > item_header_idx:
+        if item_section_started and list_idx > item_header_idx:
             # Extract all numbers and their positions
             numbers = re.findall(r'[0-9\,]+\.?\d*', line_stripped)
 
