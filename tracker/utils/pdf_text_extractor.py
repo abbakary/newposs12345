@@ -126,29 +126,56 @@ def parse_invoice_data(text: str) -> dict:
         if cleaned and len(cleaned) > 2:
             cleaned_lines.append(cleaned)
 
-    # Helper to find field value - try multiple strategies
-    def extract_field_value(label_patterns, text_to_search=None, multiline=False):
-        """Extract value after a label using flexible pattern matching"""
+    # Helper to find field value - try multiple strategies including searching ahead
+    def extract_field_value(label_patterns, text_to_search=None, max_distance=10):
+        """Extract value after a label using flexible pattern matching and distance-based search.
+
+        This handles cases where PDF extraction scrambles text ordering.
+        It looks for the label, then finds the most likely value nearby in the text.
+        """
         search_text = text_to_search or normalized_text
+        patterns = label_patterns if isinstance(label_patterns, list) else [label_patterns]
 
-        for pattern in (label_patterns if isinstance(label_patterns, list) else [label_patterns]):
-            # Try with colon separator
-            m = re.search(rf'{pattern}\s*:\s*([^\n:{{]+)', search_text, re.I | re.MULTILINE)
-            if m and m.group(1).strip():
-                return m.group(1).strip()
-
-            # Try with equals separator
-            m = re.search(rf'{pattern}\s*=\s*([^\n=]+)', search_text, re.I | re.MULTILINE)
-            if m and m.group(1).strip():
-                return m.group(1).strip()
-
-            # Try with just space separator (colon/equals optional)
-            m = re.search(rf'{pattern}\s+([A-Z][^\n:={{]+?)(?:\s+(?:Tel|Fax|Del|Ref|Date|Kind|Attended|Type|Payment|Delivery)|\n[A-Z]+\s|$)', search_text, re.I | re.MULTILINE)
+        for pattern in patterns:
+            # Strategy 1: Look for "Label: Value" or "Label = Value"
+            m = re.search(rf'{pattern}\s*[:=]\s*([^\n:{{]+)', search_text, re.I | re.MULTILINE)
             if m and m.group(1).strip():
                 value = m.group(1).strip()
-                # Clean up
-                value = re.sub(r'\s+(Tel|Fax|Del|Date|Ref)\s*.*$', '', value, flags=re.I).strip()
-                return value if value else None
+                # Clean up trailing labels
+                value = re.sub(r'\s+(?:Tel|Fax|Del|Ref|Date|Kind|Attended|Type|Payment|Delivery|Reference|PI|Cust|Qty|Rate|Value)\b.*$', '', value, flags=re.I).strip()
+                if value:
+                    return value
+
+            # Strategy 2: "Label Value" (space separated, often in scrambled PDFs)
+            m = re.search(rf'{pattern}\s+(?![:=])([A-Z][^\n:{{]*?)(?=\n[A-Z]|\s{2,}[A-Z]|\n$|$)', search_text, re.I | re.MULTILINE)
+            if m and m.group(1).strip():
+                value = m.group(1).strip()
+                # Remove any trailing keywords
+                value = re.sub(r'\s+(?:Tel|Fax|Del|Ref|Date|Kind|Attended|Type|Payment|Delivery|Reference|PI|Cust|Qty|Rate|Value|SR|NO)\b.*$', '', value, flags=re.I).strip()
+                if value and len(value) > 2:
+                    return value
+
+            # Strategy 3: Find label, then look for value on next non-empty line
+            lines = search_text.split('\n')
+            for i, line in enumerate(lines):
+                if re.search(pattern, line, re.I):
+                    # Check if value is on same line (after label)
+                    m = re.search(rf'{pattern}\s*[:=]?\s*(.+)$', line, re.I)
+                    if m:
+                        value = m.group(1).strip()
+                        if value and value.upper() not in (':', '=', '') and not re.match(r'^(?:Tel|Fax|Del|Ref|Date)\b', value, re.I):
+                            return value
+
+                    # Look for value on next 2-3 lines (handles scrambled layouts)
+                    for j in range(1, min(4, len(lines) - i)):
+                        next_line = lines[i + j].strip()
+                        if next_line and not re.match(r'^[A-Z]+[a-zA-Z\s]*\s*[:=]', next_line):
+                            # This looks like a value line
+                            if len(next_line) > 2 and not re.match(r'^(?:Tel|Fax|Del|Ref|Date|SR|NO|Code|Customer|Address)\b', next_line, re.I):
+                                return next_line
+                        elif re.match(r'^[A-Z]+[a-zA-Z\s]*\s*[:=]', next_line):
+                            # Hit another label, stop searching
+                            break
 
         return None
 
