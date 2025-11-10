@@ -7,6 +7,8 @@ from django.contrib.staticfiles.urls import staticfiles_urlpatterns
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("", include("tracker.urls")),
+    # Also allow routes under /tracker/ for backwards compatibility
+    path("tracker/", include("tracker.urls")),
     # Add Django's authentication URLs
     path('accounts/', include('django.contrib.auth.urls')),
 ]
