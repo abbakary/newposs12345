@@ -94,6 +94,7 @@ class CustomerService:
         """
         Create or get a customer with proper deduplication.
         If customer exists, updates contact information (address, email, whatsapp).
+        Phone numbers are normalized for comparison but stored as-is.
 
         Args:
             branch: User's branch
@@ -116,6 +117,12 @@ class CustomerService:
         """
         full_name = (full_name or "").strip()
         phone = (phone or "").strip()
+        email = (email or "").strip() or None
+        whatsapp = (whatsapp or "").strip() or None
+        address = (address or "").strip() or None
+        notes = (notes or "").strip() or None
+        organization_name = (organization_name or "").strip() or None
+        tax_number = (tax_number or "").strip() or None
 
         if not full_name or not phone:
             raise ValueError("Customer full_name and phone are required")
@@ -133,13 +140,13 @@ class CustomerService:
         if existing:
             # Customer already exists - update contact info if provided
             updated = False
-            if address and address.strip() and (not existing.address or existing.address != address):
+            if address and (not existing.address or existing.address != address):
                 existing.address = address
                 updated = True
-            if email and email.strip() and (not existing.email or existing.email != email):
+            if email and (not existing.email or existing.email != email):
                 existing.email = email
                 updated = True
-            if whatsapp and whatsapp.strip() and (not existing.whatsapp or existing.whatsapp != whatsapp):
+            if whatsapp and (not existing.whatsapp or existing.whatsapp != whatsapp):
                 existing.whatsapp = whatsapp
                 updated = True
 
@@ -158,13 +165,13 @@ class CustomerService:
                     branch=branch,
                     full_name=full_name,
                     phone=phone,
-                    email=email or None,
-                    whatsapp=whatsapp or None,
-                    address=address or None,
-                    notes=notes or None,
+                    email=email,
+                    whatsapp=whatsapp,
+                    address=address,
+                    notes=notes,
                     customer_type=customer_type or "personal",
-                    organization_name=organization_name or None,
-                    tax_number=tax_number or None,
+                    organization_name=organization_name,
+                    tax_number=tax_number,
                     personal_subtype=personal_subtype or None,
                     arrival_time=timezone.now(),
                     current_status='arrived',
@@ -186,13 +193,13 @@ class CustomerService:
             if existing:
                 # Update contact info for the found customer
                 updated = False
-                if address and address.strip() and (not existing.address or existing.address != address):
+                if address and (not existing.address or existing.address != address):
                     existing.address = address
                     updated = True
-                if email and email.strip() and (not existing.email or existing.email != email):
+                if email and (not existing.email or existing.email != email):
                     existing.email = email
                     updated = True
-                if whatsapp and whatsapp.strip() and (not existing.whatsapp or existing.whatsapp != whatsapp):
+                if whatsapp and (not existing.whatsapp or existing.whatsapp != whatsapp):
                     existing.whatsapp = whatsapp
                     updated = True
 
