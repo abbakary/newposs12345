@@ -356,12 +356,12 @@ def api_create_invoice_from_upload(request):
                 except Exception as e:
                     logger.warning(f"Failed to create aggregated line item: {e}")
 
-            # Recalculate totals only if items were provided; otherwise keep posted totals
-            if inv.line_items.exists():
-                inv.calculate_totals()
-                inv.save()
-            else:
-                inv.save()
+            # IMPORTANT: For uploaded invoices, preserve the extracted Net Value, VAT, and Gross Value
+            # DO NOT recalculate totals from line items
+            # Line items are created for reference/detail, but the invoice totals come from the extracted document
+            # The extracted subtotal, tax_amount, and total_amount were already set above (lines 297-299)
+            # We save without recalculating to maintain the accuracy of the extracted values
+            inv.save()
             
             # Create payment record if total > 0
             if inv.total_amount > 0:
