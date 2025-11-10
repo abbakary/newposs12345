@@ -440,4 +440,22 @@
 }
 </style>
 
+<!-- Include Order Start Modal -->
+{% include 'tracker/modals/order_start_modal.html' %}
+
+<!-- Order Start Modal JavaScript -->
+<script src="{% static 'js/order_start_modal.js' %}"></script>
+
+<script>
+  // Event listener for Create Order button
+  document.addEventListener('DOMContentLoaded', function() {
+    const createOrderBtn = document.getElementById('openOrderStartModal');
+    if (createOrderBtn && window.orderStartModal) {
+      createOrderBtn.addEventListener('click', function() {
+        window.orderStartModal.open();
+      });
+    }
+  });
+</script>
+
 {% endblock %}
