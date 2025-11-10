@@ -8,6 +8,7 @@ import os
 import base64
 import json
 from urllib import request, parse
+import re
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -66,6 +67,17 @@ def send_sms(phone: str, message: str) -> tuple[bool, str]:
 
     return False, "No SMS provider configured. Set ZAPIER_SMS_WEBHOOK_URL or Twilio env vars."
 
+
+# ---- Phone helpers --------------------------------------------------------
+
+def normalize_phone(phone: str) -> str:
+    """Normalize phone number by removing non-digits for consistent comparisons."""
+    if not phone:
+        return ""
+    try:
+        return re.sub(r"\D", "", str(phone))
+    except Exception:
+        return str(phone)
 
 # ---- Audit log helpers ----------------------------------------------------
 
