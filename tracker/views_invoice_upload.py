@@ -392,27 +392,35 @@ def api_create_invoice_from_upload(request):
                 except Exception as e:
                     logger.warning(f"Failed to stage line item aggregation: {e}")
 
-            for v in bucket.values():
-                try:
-                    line = InvoiceLineItem(
+            # Create line items without triggering per-item save() to avoid invoice total recalculation
+            try:
+                to_create = []
+                for v in bucket.values():
+                    qty = Decimal(str(v['qty'] or 1))
+                    price = Decimal(str(v['unit_price'] or Decimal('0')))
+                    line_total = qty * price
+                    to_create.append(InvoiceLineItem(
                         invoice=inv,
                         code=v['code'],
                         description=v['description'],
-                        quantity=v['qty'] or 1,
+                        quantity=qty,
                         unit=v['unit'],
-                        unit_price=v['unit_price'] or Decimal('0')
-                    )
-                    line.save()
-                except Exception as e:
-                    logger.warning(f"Failed to create aggregated line item: {e}")
+                        unit_price=price,
+                        tax_rate=Decimal('0'),
+                        line_total=line_total,
+                        tax_amount=Decimal('0'),
+                    ))
+                if to_create:
+                    InvoiceLineItem.objects.bulk_create(to_create)
+            except Exception as e:
+                logger.warning(f"Failed to bulk create aggregated line items: {e}")
 
-            # IMPORTANT: For uploaded invoices, preserve the extracted Net Value, VAT, and Gross Value
-            # DO NOT recalculate totals from line items
-            # Line items are created for reference/detail, but the invoice totals come from the extracted document
-            # The extracted subtotal, tax_amount, and total_amount were already set above (lines 297-299)
-            # We save without recalculating to maintain the accuracy of the extracted values
-            inv.save()
-            
+            # IMPORTANT: Preserve extracted Net, VAT, Gross values for uploaded invoices
+            inv.subtotal = subtotal
+            inv.tax_amount = tax_amount
+            inv.total_amount = total_amount or (subtotal + tax_amount)
+            inv.save(update_fields=['subtotal', 'tax_amount', 'total_amount'])
+
             # Create payment record if total > 0
             if inv.total_amount > 0:
                 try:
