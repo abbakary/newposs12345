@@ -778,9 +778,9 @@ def parse_invoice_data(text: str) -> dict:
             if not numbers and not text_parts:
                 continue
 
-            # Only process lines with both text AND numbers (complete table rows)
-            # Skip text-only or number-only lines to avoid duplicates
-            if text_parts and numbers and len(line_stripped) > 5:
+            # Only process lines with BOTH text AND numbers (complete table rows)
+            # This ensures we capture actual data rows, not just field labels
+            if text_parts and numbers and len(line_stripped) > 5 and len(text_parts) > 0:
                 try:
                     # Extract unit (NOS, PCS, HR, etc.) from the line
                     unit_match = re.search(r'\b(NOS|PCS|KG|HR|LTR|PIECES?|UNITS?|BOX|CASE|SETS?|PC|KIT)\b', line_stripped, re.I)
