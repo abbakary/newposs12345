@@ -636,6 +636,7 @@
                     if (!fileInput || !fileInput.files || !fileInput.files[0]){
                       errorBox.style.display='block';
                       errorBox.innerHTML='<i class="fa fa-warning me-2"></i>Please select a file to upload.';
+                      errorBox.className = 'alert alert-warning mt-2';
                       return;
                     }
 
@@ -643,13 +644,13 @@
                     if (file.size > 50 * 1024 * 1024) {
                       errorBox.style.display='block';
                       errorBox.innerHTML='<i class="fa fa-warning me-2"></i>File is too large. Maximum size is 50MB.';
+                      errorBox.className = 'alert alert-warning mt-2';
                       return;
                     }
 
                     errorBox.style.display='none';
                     const fd = new FormData();
                     fd.append('file', file);
-                    // include optional plate or selected order id
                     const plateEl = document.querySelector('[name="plate_number"]');
                     const plate = plateEl ? plateEl.value.trim().toUpperCase() : '';
                     if (plate) fd.append('plate', plate);
@@ -669,23 +670,34 @@
                       });
 
                       setProgress(100);
-                      const data = await r.json();
 
-                      if (data && data.success){
+                      if (!r.ok) {
+                        throw new Error(`Server error: ${r.status} ${r.statusText}`);
+                      }
+
+                      let data;
+                      try {
+                        data = await r.json();
+                      } catch(jsonErr) {
+                        throw new Error('Invalid response format from server');
+                      }
+
+                      if (!data) {
+                        throw new Error('Empty response from server');
+                      }
+
+                      if (data.success === true){
                         errorBox.style.display='block';
                         errorBox.innerHTML='<i class="fa fa-check-circle text-success me-2"></i>Invoice created successfully! Redirecting...';
                         errorBox.className = 'alert alert-success mt-2';
-                        // Redirect to invoice detail
                         setTimeout(function(){
                           window.location.href = data.redirect_url || ('/tracker/invoices/' + data.invoice_id + '/');
                         }, 500);
                         return;
                       }
 
-                      // If extraction requires manual review, data.data contains parsed fields
-                      if (data && data.data){
+                      if (data.data && data.data.header){
                         const d = data.data;
-                        // Populate modal with extracted header data
                         const hdr = d.header || {};
                         const invoiceNo = hdr.invoice_no || hdr.code_no || 'N/A';
                         const date = hdr.date || 'N/A';
@@ -731,28 +743,37 @@
                             <div class="col-md-4"><strong>Total:</strong> ${total} TSH</div>
                           </div>`;
 
-                        extractedHeader.innerHTML = headerHtml;
-                        extractedItemsBody.innerHTML = '';
+                        if (extractedHeader) extractedHeader.innerHTML = headerHtml;
+                        if (extractedItemsBody) extractedItemsBody.innerHTML = '';
                         (d.items || []).forEach(it=>{
+                          if (!extractedItemsBody) return;
                           const tr = document.createElement('tr');
                           const itemValue = it.value ? parseFloat(it.value).toLocaleString('en-US', {minimumFractionDigits: 2}) : '';
                           tr.innerHTML = `<td>${it.code||''}</td><td>${it.description||''}</td><td>${it.qty||''}</td><td>${itemValue}</td>`;
                           extractedItemsBody.appendChild(tr);
                         });
-                        extractedRaw.textContent = d.raw_text ? d.raw_text.substring(0,2000) : '';
-                        // store last extraction globally
+                        if (extractedRaw) extractedRaw.textContent = d.raw_text ? d.raw_text.substring(0,2000) : '';
                         window.__lastInvoiceExtraction = d;
-                        reviewModal && reviewModal.show();
+                        if (reviewModal) {
+                          reviewModal.show();
+                        } else {
+                          errorBox.style.display='block';
+                          errorBox.innerHTML = '<i class="fa fa-info-circle me-2"></i>Extraction complete. Please review the data in the form below.';
+                          errorBox.className = 'alert alert-info mt-2';
+                        }
                       } else {
                         errorBox.style.display='block';
-                        errorBox.innerHTML = '<i class="fa fa-exclamation-circle me-2"></i>' + (data.message || 'Could not fully extract invoice. Please review and apply fields below, or enter manually.');
+                        const msgText = data.message || 'Could not extract invoice data. Please check the file format and try again.';
+                        errorBox.innerHTML = '<i class="fa fa-exclamation-circle me-2"></i>' + msgText;
                         errorBox.className = 'alert alert-warning mt-2';
                       }
                     } catch(err){
                       setProgress(0);
                       errorBox.style.display='block';
-                      errorBox.innerHTML = '<i class="fa fa-exclamation-triangle me-2"></i>Upload error: ' + (err && err.message ? err.message : String(err));
+                      const errMsg = (err && err.message) ? err.message : String(err);
+                      errorBox.innerHTML = '<i class="fa fa-exclamation-triangle me-2"></i>Upload error: ' + errMsg;
                       errorBox.className = 'alert alert-danger mt-2';
+                      console.error('Upload extraction error:', err);
                     } finally {
                       uploadBtn.disabled = false;
                       uploadBtn.innerHTML = originalBtnText;
