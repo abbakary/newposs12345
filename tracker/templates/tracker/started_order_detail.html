@@ -1557,4 +1557,18 @@ document.addEventListener('DOMContentLoaded', function(){
 
 </script>
 
+<!-- Extraction Form Modal JavaScript -->
+<script src="{% static 'js/extraction_form_modal.js' %}"></script>
+
+<script>
+  // Initialize extraction form modal for started orders
+  document.addEventListener('DOMContentLoaded', function() {
+    const orderType = '{{ order.type|default:"service" }}';
+    const orderId = {{ order.id }};
+
+    // Create modal instance with order type and ID
+    window.extractionFormModal = new ExtractionFormModal(orderType, orderId);
+  });
+</script>
+
 {% endblock %}
