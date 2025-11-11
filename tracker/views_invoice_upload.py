@@ -243,19 +243,6 @@ def api_create_invoice_from_upload(request):
                         'success': False,
                         'message': 'Failed to create customer'
                     })
-                # Update basic contact info if we found existing by name+plate
-                updated = False
-                try:
-                    if customer_email and (not customer_obj.email or customer_obj.email != customer_email):
-                        customer_obj.email = customer_email
-                        updated = True
-                    if customer_address and (not customer_obj.address or customer_obj.address != customer_address):
-                        customer_obj.address = customer_address
-                        updated = True
-                    if updated:
-                        customer_obj.save(update_fields=['email', 'address'])
-                except Exception:
-                    pass
 
             # Get or create vehicle if plate provided
             vehicle = None
